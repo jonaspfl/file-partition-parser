@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <string.h>
+#include <unistd.h>
 
 //  constant number of bytes which the length of byte-strings gets encoded
 uint64_t LEN_SIZE = 8;
@@ -17,7 +18,7 @@ struct byte_string *read_bytes(char *);
 uint64_t f_size(char *);
 uint64_t from_bytes(uint64_t, uint64_t, const char *);
 char *to_bytes(uint64_t, uint64_t);
-int extract_files(char *);
+int process_input_file(char *);
 struct byte_string *encode_file(char *);
 
 int main(int argc, char **argv) {
@@ -200,7 +201,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "Could not open file '%s'.\n", argv[3]);
             return 1;
         }
-        char *f_count = to_bytes(f_idx + 1, LEN_SIZE);
+        char *f_count = to_bytes(f_idx, LEN_SIZE);
         uint32_t written = fwrite(f_count, 1, LEN_SIZE, f_output);
         if (written < LEN_SIZE) {
             fprintf(stderr, "Could not write to file '%s'.\n", argv[3]);
@@ -217,7 +218,7 @@ int main(int argc, char **argv) {
         }
         free(bytes_written);
 
-        fprintf(stdout, "Successfully wrote %llu bytes to %u files.\n", written_total, f_idx + 1);
+        fprintf(stdout, "Successfully wrote %llu bytes to %u files.\n", written_total, f_idx);
 
         return 0;
     } else if (!strcmp(argv[1], "decode")) {
@@ -227,7 +228,7 @@ int main(int argc, char **argv) {
         }
 
         //  extract the files from the input file and return the error code
-        return extract_files(argv[2]);
+        return process_input_file(argv[2]);
     }
     return 1;
 }
@@ -408,15 +409,8 @@ struct byte_string *encode_file(char *filepath) {
     return bytes;
 }
 
-//  extract all files encoded into the input file
-int extract_files(char *filepath) {
-    //  read data from file
-    struct byte_string *bytes_f = read_bytes(filepath);
-    if (!bytes_f) {
-        fprintf(stderr, "Could not read file '%s'.\n", filepath);
-        return 1;
-    }
-
+//  extract all files that are encoded in the given byte-string
+int extract_files(struct byte_string *bytes_f) {
     //  iterate through the byte-string and extract the encoded file data
     uint64_t pos = 0;
     while (pos < bytes_f->len) {
@@ -468,4 +462,81 @@ int extract_files(char *filepath) {
     free(bytes_f->data);
     free(bytes_f);
     return 0;
+}
+
+//  process the given input file
+int process_input_file(char *filepath) {
+    //  read data from the given file
+    struct byte_string *bytes_f = read_bytes(filepath);
+    if (!bytes_f) {
+        fprintf(stderr, "Could not read file '%s'.\n", filepath);
+        return 1;
+    }
+
+    //  read the information about the data that needs to be reads from the files
+    uint64_t f_count = from_bytes(0, LEN_SIZE, bytes_f->data);
+    uint64_t size_total = from_bytes(LEN_SIZE, LEN_SIZE, bytes_f->data);
+
+    //  store all file names of the data files in an array, so they can be accessed easily
+    uint32_t f_name_len = strlen(filepath) + 32;
+    char *f_names = calloc(f_count, f_name_len);
+    if (!f_names) {
+        fprintf(stderr, "Could not allocate memory.\n");
+        free(bytes_f);
+        return 1;
+    }
+    for (uint32_t i = 0; i < f_count; i++) {
+        snprintf(f_names + (i * f_name_len), f_name_len, "%s_data%u", filepath, i);
+    }
+
+    //  check if all needed data-files exist and are accessible
+    for (uint32_t i = 0; i < f_count; i++) {
+        if (access(f_names + (i * f_name_len), R_OK) == -1) {
+            fprintf(stderr, "Error, can not access file '%s'.\n", f_names + (i * f_name_len));
+            free(f_names);
+            free(bytes_f);
+            return 1;
+        }
+    }
+
+    //  allocate enough memory to read in all data-files
+    struct byte_string *bytes_complete = malloc(sizeof (struct byte_string));
+    if (!bytes_complete) {
+        fprintf(stderr, "Could not allocate memory.\n");
+        free(bytes_f);
+        free(f_names);
+        return 1;
+    }
+    //  the actual bytes are stored here
+    char *data = malloc(size_total);
+    if (!data) {
+        fprintf(stderr, "Could not allocate memory.\n");
+        free(bytes_f);
+        free(f_names);
+        return 1;
+    }
+    bytes_complete->data = data;
+    bytes_complete->len = size_total;
+
+    //  read all data from all data files
+    uint64_t cpy_offset = 0;
+    for (uint32_t i = 0; i < f_count; i++) {
+        struct byte_string *bytes = read_bytes(f_names + (i * f_name_len));
+        if (!bytes) {
+            fprintf(stderr, "Error, could not read file '%s'.\n", f_names + (i * f_name_len));
+            free(f_names);
+            free(bytes_f);
+            return 1;
+        }
+
+        //  the data of all data-files will be stored as one large byte-string
+        bytes_cpy(bytes->data, bytes_complete->data + cpy_offset, bytes->len);
+        cpy_offset += bytes->len;
+
+        free(bytes->data);
+        free(bytes);
+    }
+
+    //  extract the files from the given bytes
+    return extract_files(bytes_complete);
 }
