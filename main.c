@@ -156,7 +156,7 @@ uint64_t from_bytes(uint64_t start, uint64_t length, const char *bytes) {
 //  return the starting index of the filename included in the specified path
 uint64_t extract_filename(const char *filepath, uint64_t len) {
     for (uint64_t i = len; i > 0; i--) {
-        if (*(filepath + i - 1) == '\\') {
+        if (*(filepath + i - 1) == '/') {
             return i;
         }
     }
