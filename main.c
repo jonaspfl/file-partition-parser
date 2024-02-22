@@ -28,38 +28,197 @@ int main(int argc, char **argv) {
 
     //  can be executed in two different modes (encode, decode)
     if (!strcmp(argv[1], "encode")) {
-        if (argc < 4) {
+        if (argc < 5) {
             fprintf(stderr, "Wrong number of arguments for mode 'encode'. Expected at least 4.\n");
             return 1;
         }
 
-        //  open and clear the file where everything will be stored
-        FILE *f_output = fopen(argv[2], "wb+");
-        if (!f_output) {
-            fprintf(stderr, "Could not open file '%s'.\n", argv[2]);
+        //  parse thw given max output-filesize in kb
+        char *ptr = argv[2];
+        uint64_t max_fsize = strtol(argv[2], &ptr, 10);
+        if (ptr == argv[2]) {
+            fprintf(stderr, "Error parsing the given max. output size: '%s'\n", argv[2]);
+            return 1;
+        }
+        if (max_fsize) {
+            switch (*ptr) {
+                case 'k':
+                case 'K':
+                    if (max_fsize *  1024 < max_fsize) {
+                        fprintf(stderr, "Error parsing the given max. output size: '%s' (overflow)\n", argv[2]);
+                        return 1;
+                    }
+                    max_fsize *= 1024;
+                    break;
+                case 'm':
+                case 'M':
+                    if (max_fsize *  1024 * 1024 < max_fsize) {
+                        fprintf(stderr, "Error parsing the given max. output size: '%s' (overflow)\n", argv[2]);
+                        return 1;
+                    }
+                    max_fsize *= 1024 * 1024;
+                    break;
+                case 'g':
+                case 'G':
+                    if (max_fsize *  1024 * 1024 * 1024 < max_fsize) {
+                        fprintf(stderr, "Error parsing the given max. output size: '%s' (overflow)\n", argv[2]);
+                        return 1;
+                    }
+                    max_fsize *= 1024 * 1024 * 1024;
+                    break;
+                default:
+                    fprintf(stderr, "Missing unit for the given max. output size: '%s' (valid are: K | M | G)\n", argv[2]);
+                    return 1;
+            }
+        }
+        if (!max_fsize) {
+            max_fsize--;
+        }
+
+        uint32_t f_name_len = strlen(argv[3]);
+        char *f_name =  malloc(f_name_len + 32);
+        if (!f_name) {
+            fprintf(stderr, "Could not allocate memory'.\n");
             return 1;
         }
 
-        //  iterate through all passed files, encode them and write them to the output file
-        uint64_t written;
-        for (int i = 3; i < argc; i++) {
-            struct byte_string *bytes = encode_file(argv[i]);
+        //  setting up all the variables, that need to be persistent over potentially many iterations
+        //  all are adjusted within the loop to reflect the current state of the data output process
+        uint64_t written_total = 0;
+        uint64_t bytes_carry = 0;
+        uint64_t bytes_offset = 0;
+        uint32_t f_idx = 0;
+        struct byte_string *bytes = NULL;
+        FILE *f_output = NULL;
+
+        //  iterate through all input files
+        //  one file can be written in multiple iterations depending on the maximum output file size
+        //  iteration counter is adjusted accordingly
+        for (uint32_t i = 4; i < argc; i++) {
+            //  when there is no carry, the current byte-string needs to be cleared and a new file needs to be read
+            if (!bytes_carry) {
+                if (bytes) {
+                    free(bytes->data);
+                    free(bytes);
+                }
+                //  read and encode the new file
+                bytes = encode_file(argv[i]);
+                if (!bytes) {
+                    fprintf(stderr, "Could not encode file '%s'.\n", argv[i]);
+                    free(f_name);
+                    return 1;
+                }
+                bytes_offset = 0;
+            }
+
+            //  the current byte-string must not be NULL at this point
             if (!bytes) {
-                fprintf(stderr, "Could not encode file '%s'.\n", argv[i]);
+                fprintf(stderr, "Error, memory is not allocated.");
+                free(f_name);
                 return 1;
             }
-            written = fwrite(bytes->data, 1, bytes->len, f_output);
-            if (written < bytes->len) {
-                fprintf(stderr, "Could not write to file '%s'.\n", argv[2]);
+
+            //  calculating how many bytes are left to write in the same file
+            uint64_t bytes_left = max_fsize - (written_total % max_fsize);
+            if (bytes_left < bytes->len - bytes_offset) {
+                bytes_carry = bytes->len - bytes_offset - bytes_left;
+            } else {
+                bytes_carry = 0;
+            }
+
+            //  when the current byte-string is shorter than the remaining filesize, only write as much as needed
+            uint64_t write_n = bytes_left;
+            if (bytes->len - bytes_offset < bytes_left) {
+                write_n = bytes->len - bytes_offset;
+            }
+
+            //  check if new output file needs to be created
+            if (bytes_left == max_fsize) {
+                //  setting up the filename of the new data file
+                memset(f_name, 0, f_name_len + 31);
+                strncpy(f_name, argv[3], f_name_len);
+                snprintf(f_name + f_name_len, f_name_len + 31, "_data%u", f_idx);
+
+                //  close the currently open file
+                if (f_output) {
+                    fclose(f_output);
+                }
+
+                //  open the new file
+                f_output = fopen(f_name, "wb+");
+                if (!f_output) {
+                    fprintf(stderr, "Could not open file '%s'.\n", f_name);
+                    free(f_name);
+                    return 1;
+                }
+                f_idx++;
+            }
+
+            //  the output file must be open at this point
+            if (!f_output) {
+                fprintf(stderr, "Error, output file is not open.");
                 free(bytes->data);
                 free(bytes);
+                free(f_name);
                 return 1;
             }
+
+            //  write the actual output data until everything is written, or until max file size is reached
+            uint64_t written;
+            written = fwrite(bytes->data + bytes_offset, 1, write_n, f_output);
+            if (written < write_n) {
+                fprintf(stderr, "Could not write to file '%s'.\n", f_name);
+                free(bytes->data);
+                free(bytes);
+                free(f_name);
+                return 1;
+            }
+
+            //  adjust how many bytes were written
+            //  also don't increase file idx if the current file was not completely written
+            written_total += written;
+            bytes_offset += written;
+            if (bytes_carry) {
+                i--;
+            }
+        }
+
+        //  free all remaining recourses
+        if (bytes) {
             free(bytes->data);
             free(bytes);
         }
+        if (f_output) {
+            fclose(f_output);
+        }
+        free(f_name);
 
-        fclose(f_output);
+        //  open main output file, containing the information about the other files
+        //  this includes file count and total size written to them
+        f_output = fopen(argv[3], "wb+");
+        if (!f_output) {
+            fprintf(stderr, "Could not open file '%s'.\n", argv[3]);
+            return 1;
+        }
+        char *f_count = to_bytes(f_idx + 1, LEN_SIZE);
+        uint32_t written = fwrite(f_count, 1, LEN_SIZE, f_output);
+        if (written < LEN_SIZE) {
+            fprintf(stderr, "Could not write to file '%s'.\n", argv[3]);
+            free(f_count);
+            return 1;
+        }
+        free(f_count);
+        char *bytes_written = to_bytes(written_total, LEN_SIZE);
+        written = fwrite(bytes_written, 1, LEN_SIZE, f_output);
+        if (written < LEN_SIZE) {
+            fprintf(stderr, "Could not write to file '%s'.\n", argv[3]);
+            free(bytes_written);
+            return 1;
+        }
+        free(bytes_written);
+
+        fprintf(stdout, "Successfully wrote %llu bytes to %u files.\n", written_total, f_idx + 1);
+
         return 0;
     } else if (!strcmp(argv[1], "decode")) {
         if (argc != 3) {
