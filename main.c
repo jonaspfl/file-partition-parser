@@ -44,6 +44,10 @@ int main(int argc, char **argv) {
         uint64_t written;
         for (int i = 3; i < argc; i++) {
             struct byte_string *bytes = encode_file(argv[i]);
+            if (!bytes) {
+                fprintf(stderr, "Could not encode file '%s'.\n", argv[i]);
+                return 1;
+            }
             written = fwrite(bytes->data, 1, bytes->len, f_output);
             if (written < bytes->len) {
                 fprintf(stderr, "Could not write to file '%s'.\n", argv[2]);
