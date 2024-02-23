@@ -555,7 +555,7 @@ int process_input_file(char *filepath) {
             return 1;
         }
 
-        //  the data of all data-files will be stored as one large byte-string
+        //  prevent buffer-overflow on corrupt input file
         if (cpy_offset + bytes->len > size_total) {
             fprintf(stderr, "Error, aborting to prevent buffer-overflow. Input file might be corrupted.\n");
             free(f_names);
@@ -565,6 +565,7 @@ int process_input_file(char *filepath) {
             free(bytes);
             return 1;
         }
+        //  the data of all data-files will be stored as one large byte-string
         bytes_cpy(bytes->data, bytes_complete->data + cpy_offset, bytes->len);
         cpy_offset += bytes->len;
 
