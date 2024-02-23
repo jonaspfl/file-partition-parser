@@ -235,6 +235,7 @@ int main(int argc, char **argv) {
             return 1;
         }
         free(bytes_written);
+        fclose(f_output);
 
         fprintf(stdout, "Successfully wrote %llu bytes to %u files.\n", written_total, f_idx);
 
