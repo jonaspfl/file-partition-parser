@@ -501,13 +501,14 @@ int process_input_file(char *filepath) {
     //  read the information about the data that needs to be reads from the files
     uint64_t f_count = from_bytes(0, LEN_SIZE, bytes_f->data);
     uint64_t size_total = from_bytes(LEN_SIZE, LEN_SIZE, bytes_f->data);
+    free(bytes_f->data);
+    free(bytes_f);
 
     //  store all file names of the data files in an array, so they can be accessed easily
     uint32_t f_name_len = strlen(filepath) + 32;
     char *f_names = calloc(f_count, f_name_len);
     if (!f_names) {
         fprintf(stderr, "Could not allocate memory.\n");
-        free(bytes_f);
         return 1;
     }
     for (uint32_t i = 0; i < f_count; i++) {
@@ -519,7 +520,6 @@ int process_input_file(char *filepath) {
         if (access(f_names + (i * f_name_len), R_OK) == -1) {
             fprintf(stderr, "Error, can not access file '%s'.\n", f_names + (i * f_name_len));
             free(f_names);
-            free(bytes_f);
             return 1;
         }
     }
@@ -528,7 +528,6 @@ int process_input_file(char *filepath) {
     struct byte_string *bytes_complete = malloc(sizeof (struct byte_string));
     if (!bytes_complete) {
         fprintf(stderr, "Could not allocate memory.\n");
-        free(bytes_f);
         free(f_names);
         return 1;
     }
@@ -536,7 +535,6 @@ int process_input_file(char *filepath) {
     char *data = malloc(size_total);
     if (!data) {
         fprintf(stderr, "Could not allocate memory.\n");
-        free(bytes_f);
         free(f_names);
         return 1;
     }
@@ -550,8 +548,6 @@ int process_input_file(char *filepath) {
         if (!bytes) {
             fprintf(stderr, "Error, could not read file '%s'.\n", f_names + (i * f_name_len));
             free(f_names);
-            free(bytes_f->data);
-            free(bytes_f);
             return 1;
         }
 
@@ -559,8 +555,6 @@ int process_input_file(char *filepath) {
         if (cpy_offset + bytes->len > size_total) {
             fprintf(stderr, "Error, aborting to prevent buffer-overflow. Input file might be corrupted.\n");
             free(f_names);
-            free(bytes_f->data);
-            free(bytes_f);
             free(bytes->data);
             free(bytes);
             return 1;
@@ -572,6 +566,7 @@ int process_input_file(char *filepath) {
         free(bytes->data);
         free(bytes);
     }
+    free(f_names);
 
     //  extract the files from the given bytes
     return extract_files(bytes_complete);
