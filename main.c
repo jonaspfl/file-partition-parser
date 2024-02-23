@@ -5,7 +5,7 @@
 #include <unistd.h>
 
 //  constant number of bytes which the length of byte-strings gets encoded
-uint64_t LEN_SIZE = 8;
+const uint64_t LEN_SIZE = 8;
 
 //  struct for storing byte-strings and their length
 struct byte_string {
@@ -21,9 +21,22 @@ char *to_bytes(uint64_t, uint64_t);
 int process_input_file(char *);
 struct byte_string *encode_file(char *);
 
+void print_help(char *app_name) {
+    fprintf(stdout, "This application can be executed in 2 different modes (encode, decode).\n"
+                    "Syntax:\n1) %s encode <max output filesize> <output filename> <input filename 1> ... <input filename n>\n"
+                    "2) %s decode <input filename>\n"
+                    "| <max output filesize>: 5K -> 5 KiB, 7M -> 7 MiB, 13G -> 13 GiB (0 -> unlimited)\n"
+                    "|-> output will be split into multiple data-files if total data exceeds the max output filesize.\n"
+                    "| Multiple input files can be added.\n"
+                    "Examples:\n1) %s encode 32M out dir/file0 dir/file1\n"
+                    "2) %s encode 10K out file\n"
+                    "3) %s decode out\n", app_name, app_name, app_name, app_name, app_name);
+}
+
 int main(int argc, char **argv) {
     //  check if number of passed arguments is correct
     if (argc < 2) {
+        print_help(argv[0]);
         return 1;
     }
 
@@ -31,11 +44,16 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "encode")) {
         if (argc < 5) {
             fprintf(stderr, "Wrong number of arguments for mode 'encode'. Expected at least 4.\n");
+            print_help(argv[0]);
             return 1;
         }
 
         //  parse thw given max output-filesize in kb
         char *ptr = argv[2];
+        if (*ptr == '-') {
+            fprintf(stderr, "Error parsing the given max. output size: '%s'\n", argv[2]);
+            return 1;
+        }
         uint64_t max_fsize = strtol(argv[2], &ptr, 10);
         if (ptr == argv[2]) {
             fprintf(stderr, "Error parsing the given max. output size: '%s'\n", argv[2]);
@@ -223,13 +241,16 @@ int main(int argc, char **argv) {
         return 0;
     } else if (!strcmp(argv[1], "decode")) {
         if (argc != 3) {
-            fprintf(stderr, "Wrong number of arguments for mode 'decode'. Expected 3.\n");
+            fprintf(stderr, "Wrong number of arguments for mode 'decode'. Expected 2.\n");
+            print_help(argv[0]);
             return 1;
         }
 
         //  extract the files from the input file and return the error code
         return process_input_file(argv[2]);
     }
+
+    print_help(argv[0]);
     return 1;
 }
 
