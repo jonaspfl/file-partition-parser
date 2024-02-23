@@ -247,7 +247,11 @@ int main(int argc, char **argv) {
         }
 
         //  extract the files from the input file and return the error code
-        return process_input_file(argv[2]);
+        int err = process_input_file(argv[2]);
+        if (!err) {
+            fprintf(stdout, "Successfully extracted all files.\n");
+        }
+        return err;
     }
 
     print_help(argv[0]);
