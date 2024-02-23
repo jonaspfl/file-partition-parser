@@ -550,11 +550,21 @@ int process_input_file(char *filepath) {
         if (!bytes) {
             fprintf(stderr, "Error, could not read file '%s'.\n", f_names + (i * f_name_len));
             free(f_names);
+            free(bytes_f->data);
             free(bytes_f);
             return 1;
         }
 
         //  the data of all data-files will be stored as one large byte-string
+        if (cpy_offset + bytes->len > size_total) {
+            fprintf(stderr, "Error, aborting to prevent buffer-overflow. Input file might be corrupted.\n");
+            free(f_names);
+            free(bytes_f->data);
+            free(bytes_f);
+            free(bytes->data);
+            free(bytes);
+            return 1;
+        }
         bytes_cpy(bytes->data, bytes_complete->data + cpy_offset, bytes->len);
         cpy_offset += bytes->len;
 
