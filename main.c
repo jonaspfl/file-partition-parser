@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -20,6 +21,7 @@ uint64_t from_bytes(uint64_t, uint64_t, const char *);
 char *to_bytes(uint64_t, uint64_t);
 int process_input_file(char *);
 struct byte_string *encode_file(char *);
+uint64_t fwrite64(const void *str, uint64_t len_bytes, FILE *file);
 
 void print_help(char *app_name) {
     fprintf(stdout, "This application can be executed in 2 different modes (encode, decode).\n"
@@ -184,7 +186,7 @@ int main(int argc, char **argv) {
 
             //  write the actual output data until everything is written, or until max file size is reached
             uint64_t written;
-            written = fwrite(bytes->data + bytes_offset, 1, write_n, f_output);
+            written = fwrite64(bytes->data + bytes_offset, write_n, f_output);
             if (written < write_n) {
                 fprintf(stderr, "Could not write to file '%s'.\n", f_name);
                 free(bytes->data);
@@ -220,7 +222,7 @@ int main(int argc, char **argv) {
             return 1;
         }
         char *f_count = to_bytes(f_idx, LEN_SIZE);
-        uint32_t written = fwrite(f_count, 1, LEN_SIZE, f_output);
+        uint32_t written = fwrite64(f_count, LEN_SIZE, f_output);
         if (written < LEN_SIZE) {
             fprintf(stderr, "Could not write to file '%s'.\n", argv[3]);
             free(f_count);
@@ -228,7 +230,7 @@ int main(int argc, char **argv) {
         }
         free(f_count);
         char *bytes_written = to_bytes(written_total, LEN_SIZE);
-        written = fwrite(bytes_written, 1, LEN_SIZE, f_output);
+        written = fwrite64(bytes_written, LEN_SIZE, f_output);
         if (written < LEN_SIZE) {
             fprintf(stderr, "Could not write to file '%s'.\n", argv[3]);
             free(bytes_written);
@@ -302,8 +304,8 @@ struct byte_string *read_bytes(char *filepath) {
 
 //  calculate the size in bytes of a specific file
 uint64_t f_size(char *filepath) {
-    struct stat f_info;
-    lstat(filepath, &f_info);
+    struct _stat64 f_info;
+    _stat64(filepath, &f_info);
     return f_info.st_size;
 }
 
@@ -346,7 +348,7 @@ uint64_t from_bytes(uint64_t start, uint64_t length, const char *bytes) {
 //  return the starting index of the filename included in the specified path
 uint64_t extract_filename(const char *filepath, uint64_t len) {
     for (uint64_t i = len; i > 0; i--) {
-        if (*(filepath + i - 1) == '/') {
+        if (*(filepath + i - 1) == '/' || *(filepath + i - 1) == '\\') {
             return i;
         }
     }
@@ -360,9 +362,39 @@ void bytes_cpy(const char *src, char *dest, uint64_t len) {
     }
 }
 
+uint64_t fwrite64(const void *str, uint64_t len_bytes, FILE *file) {
+    if (!str || !file) {
+        return 0;
+    }
+
+    //  write the file in chunks of 128 MiB each
+    const uint64_t CHUNK_SIZE = 128 * 1024 * 1024;
+    uint64_t written_complete = 0;
+    uint64_t to_write = 0;
+    uint64_t offset = 0;
+    while (offset < len_bytes) {
+        if (len_bytes - offset < CHUNK_SIZE) {
+            to_write = len_bytes - offset;
+        } else {
+            to_write = CHUNK_SIZE;
+        }
+
+        uint64_t bytes_written = fwrite(str + offset, 1, to_write, file);
+        written_complete += bytes_written;
+        if (bytes_written != to_write) {
+            return written_complete;
+        }
+
+        offset += to_write;
+    }
+
+    return written_complete;
+}
+
 //  encode the file containing filename and content
 struct byte_string *encode_file(char *filepath) {
     //  read all bytes of the specified file
+    fprintf(stdout, "Encoding file '%s'\n", filepath + extract_filename(filepath, strlen(filepath)));
     struct byte_string *bytes_f = read_bytes(filepath);
     if (!bytes_f) {
         fprintf(stderr, "Could not read file '%s'.\n", filepath);
@@ -457,6 +489,7 @@ int extract_files(struct byte_string *bytes_f) {
         pos += name_len;
 
         //  create corresponding output file
+        fprintf(stdout, "Writing file '%s'\n", f_name + extract_filename(f_name, name_len));
         FILE *out = fopen(f_name, "wb+");
         if (!out) {
             fprintf(stderr, "Could not create file '%s'.\n", f_name);
@@ -471,7 +504,7 @@ int extract_files(struct byte_string *bytes_f) {
         uint64_t f_len = from_bytes(pos, LEN_SIZE, bytes_f->data);
         pos += LEN_SIZE;
         //  write file content to output file
-        uint64_t written = fwrite(bytes_f->data + pos, 1, f_len, out);
+        uint64_t written = fwrite64(bytes_f->data + pos, f_len, out);
         if (written < f_len) {
             fprintf(stderr, "Could not write file '%s'.\n", f_name);
             free(bytes_f->data);
@@ -545,6 +578,7 @@ int process_input_file(char *filepath) {
     //  read all data from all data files
     uint64_t cpy_offset = 0;
     for (uint32_t i = 0; i < f_count; i++) {
+        fprintf(stdout, "Reading file '%s'\n", f_names + (i * f_name_len + extract_filename( f_names + (i * f_name_len), f_name_len)));
         struct byte_string *bytes = read_bytes(f_names + (i * f_name_len));
         if (!bytes) {
             fprintf(stderr, "Error, could not read file '%s'.\n", f_names + (i * f_name_len));
