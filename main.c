@@ -1,3 +1,5 @@
+#define __DARWIN_64_BIT_INO_T 1
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,7 +23,8 @@ uint64_t from_bytes(uint64_t, uint64_t, const char *);
 char *to_bytes(uint64_t, uint64_t);
 int process_input_file(char *);
 struct byte_string *encode_file(char *);
-uint64_t fwrite64(const void *str, uint64_t len_bytes, FILE *file);
+uint64_t fwrite64(const void *, uint64_t, FILE *);
+void bytes_cpy(const char *, char *, uint64_t);
 
 void print_help(char *app_name) {
     fprintf(stdout, "This application can be executed in 2 different modes (encode, decode).\n"
@@ -33,6 +36,7 @@ void print_help(char *app_name) {
                     "Examples:\n1) %s encode 32M out dir/file0 dir/file1\n"
                     "2) %s encode 10K out file\n"
                     "3) %s decode out\n", app_name, app_name, app_name, app_name, app_name);
+    fflush(stdout);
 }
 
 int main(int argc, char **argv) {
@@ -46,6 +50,7 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[1], "encode")) {
         if (argc < 5) {
             fprintf(stderr, "Wrong number of arguments for mode 'encode'. Expected at least 4.\n");
+            fflush(stderr);
             print_help(argv[0]);
             return 1;
         }
@@ -54,11 +59,13 @@ int main(int argc, char **argv) {
         char *ptr = argv[2];
         if (*ptr == '-') {
             fprintf(stderr, "Error parsing the given max. output size: '%s'\n", argv[2]);
+            fflush(stderr);
             return 1;
         }
         uint64_t max_fsize = strtol(argv[2], &ptr, 10);
         if (ptr == argv[2]) {
             fprintf(stderr, "Error parsing the given max. output size: '%s'\n", argv[2]);
+            fflush(stderr);
             return 1;
         }
         if (max_fsize) {
@@ -67,6 +74,7 @@ int main(int argc, char **argv) {
                 case 'K':
                     if (max_fsize *  1024 < max_fsize) {
                         fprintf(stderr, "Error parsing the given max. output size: '%s' (overflow)\n", argv[2]);
+                        fflush(stderr);
                         return 1;
                     }
                     max_fsize *= 1024;
@@ -75,6 +83,7 @@ int main(int argc, char **argv) {
                 case 'M':
                     if (max_fsize *  1024 * 1024 < max_fsize) {
                         fprintf(stderr, "Error parsing the given max. output size: '%s' (overflow)\n", argv[2]);
+                        fflush(stderr);
                         return 1;
                     }
                     max_fsize *= 1024 * 1024;
@@ -83,12 +92,14 @@ int main(int argc, char **argv) {
                 case 'G':
                     if (max_fsize *  1024 * 1024 * 1024 < max_fsize) {
                         fprintf(stderr, "Error parsing the given max. output size: '%s' (overflow)\n", argv[2]);
+                        fflush(stderr);
                         return 1;
                     }
                     max_fsize *= 1024 * 1024 * 1024;
                     break;
                 default:
                     fprintf(stderr, "Missing unit for the given max. output size: '%s' (valid are: K | M | G)\n", argv[2]);
+                    fflush(stderr);
                     return 1;
             }
         }
@@ -100,6 +111,7 @@ int main(int argc, char **argv) {
         char *f_name =  malloc(f_name_len + 32);
         if (!f_name) {
             fprintf(stderr, "Could not allocate memory'.\n");
+            fflush(stderr);
             return 1;
         }
 
@@ -126,6 +138,7 @@ int main(int argc, char **argv) {
                 bytes = encode_file(argv[i]);
                 if (!bytes) {
                     fprintf(stderr, "Could not encode file '%s'.\n", argv[i]);
+                    fflush(stderr);
                     free(f_name);
                     return 1;
                 }
@@ -135,6 +148,7 @@ int main(int argc, char **argv) {
             //  the current byte-string must not be NULL at this point
             if (!bytes) {
                 fprintf(stderr, "Error, memory is not allocated.");
+                fflush(stderr);
                 free(f_name);
                 return 1;
             }
@@ -169,7 +183,10 @@ int main(int argc, char **argv) {
                 f_output = fopen(f_name, "wb+");
                 if (!f_output) {
                     fprintf(stderr, "Could not open file '%s'.\n", f_name);
+                    fflush(stderr);
                     free(f_name);
+                    free(bytes->data);
+                    free(bytes);
                     return 1;
                 }
                 f_idx++;
@@ -178,6 +195,7 @@ int main(int argc, char **argv) {
             //  the output file must be open at this point
             if (!f_output) {
                 fprintf(stderr, "Error, output file is not open.");
+                fflush(stderr);
                 free(bytes->data);
                 free(bytes);
                 free(f_name);
@@ -186,9 +204,12 @@ int main(int argc, char **argv) {
 
             //  write the actual output data until everything is written, or until max file size is reached
             uint64_t written;
+            fprintf(stdout, "Writing %llu MiB to file '%s'.\n", write_n / (1024 * 1024), f_name);
+            fflush(stdout);
             written = fwrite64(bytes->data + bytes_offset, write_n, f_output);
             if (written < write_n) {
                 fprintf(stderr, "Could not write to file '%s'.\n", f_name);
+                fflush(stderr);
                 free(bytes->data);
                 free(bytes);
                 free(f_name);
@@ -219,12 +240,14 @@ int main(int argc, char **argv) {
         f_output = fopen(argv[3], "wb+");
         if (!f_output) {
             fprintf(stderr, "Could not open file '%s'.\n", argv[3]);
+            fflush(stderr);
             return 1;
         }
         char *f_count = to_bytes(f_idx, LEN_SIZE);
         uint32_t written = fwrite64(f_count, LEN_SIZE, f_output);
         if (written < LEN_SIZE) {
             fprintf(stderr, "Could not write to file '%s'.\n", argv[3]);
+            fflush(stderr);
             free(f_count);
             return 1;
         }
@@ -233,6 +256,7 @@ int main(int argc, char **argv) {
         written = fwrite64(bytes_written, LEN_SIZE, f_output);
         if (written < LEN_SIZE) {
             fprintf(stderr, "Could not write to file '%s'.\n", argv[3]);
+            fflush(stderr);
             free(bytes_written);
             return 1;
         }
@@ -240,11 +264,13 @@ int main(int argc, char **argv) {
         fclose(f_output);
 
         fprintf(stdout, "Successfully wrote %llu bytes to %u files.\n", written_total, f_idx);
+        fflush(stdout);
 
         return 0;
     } else if (!strcmp(argv[1], "decode")) {
         if (argc != 3) {
             fprintf(stderr, "Wrong number of arguments for mode 'decode'. Expected 2.\n");
+            fflush(stderr);
             print_help(argv[0]);
             return 1;
         }
@@ -253,6 +279,7 @@ int main(int argc, char **argv) {
         int err = process_input_file(argv[2]);
         if (!err) {
             fprintf(stdout, "Successfully extracted all files.\n");
+            fflush(stdout);
         }
         return err;
     }
@@ -275,6 +302,7 @@ struct byte_string *read_bytes(char *filepath) {
     //  open the specified file
     FILE *file = fopen(filepath, "rb");
     if (!file) {
+        free(bytes->data);
         free(bytes);
         return NULL;
     }
@@ -289,11 +317,11 @@ struct byte_string *read_bytes(char *filepath) {
     bytes->data = f_data;
 
     //  read the file
-    char buf[128];
+    char buf[1024];
     uint64_t bytes_read;
     uint64_t offset = 0;
-    while ((bytes_read = fread(buf, 1, 127, file))) {
-        memcpy(f_data + offset, buf, bytes_read);
+    while ((bytes_read = fread(buf, 1, 1023, file))) {
+        bytes_cpy(buf, f_data + offset, bytes_read);
         offset += bytes_read;
     }
 
@@ -394,10 +422,12 @@ uint64_t fwrite64(const void *str, uint64_t len_bytes, FILE *file) {
 //  encode the file containing filename and content
 struct byte_string *encode_file(char *filepath) {
     //  read all bytes of the specified file
-    fprintf(stdout, "Encoding file '%s'\n", filepath + extract_filename(filepath, strlen(filepath)));
+    fprintf(stdout, "Encoding file '%s'...\n", filepath + extract_filename(filepath, strlen(filepath)));
+    fflush(stdout);
     struct byte_string *bytes_f = read_bytes(filepath);
     if (!bytes_f) {
         fprintf(stderr, "Could not read file '%s'.\n", filepath);
+        fflush(stderr);
         return NULL;
     }
 
@@ -405,6 +435,7 @@ struct byte_string *encode_file(char *filepath) {
     char *bytes_len_f = to_bytes(bytes_f->len, LEN_SIZE);
     if (!bytes_len_f) {
         fprintf(stderr, "Error processing data.\n");
+        fflush(stderr);
         free(bytes_f->data);
         free(bytes_f);
         return NULL;
@@ -417,6 +448,7 @@ struct byte_string *encode_file(char *filepath) {
     char *bytes_len_name = to_bytes(name_len, LEN_SIZE);
     if (!bytes_len_name) {
         fprintf(stderr, "Error processing data.\n");
+        fflush(stderr);
         free(bytes_f->data);
         free(bytes_f);
         free(bytes_len_f);
@@ -427,6 +459,10 @@ struct byte_string *encode_file(char *filepath) {
     struct byte_string *bytes = malloc(sizeof (struct byte_string));
     if (!bytes) {
         fprintf(stderr, "Memory allocation error.\n");
+        fflush(stderr);
+        free(bytes_f->data);
+        free(bytes_f);
+        free(bytes_len_f);
         return NULL;
     }
 
@@ -435,6 +471,7 @@ struct byte_string *encode_file(char *filepath) {
     char *buf = malloc(buf_size);
     if (!buf) {
         fprintf(stderr, "Memory allocation error.\n");
+        fflush(stderr);
         free(bytes);
         free(bytes_f->data);
         free(bytes_f);
@@ -445,6 +482,8 @@ struct byte_string *encode_file(char *filepath) {
     bytes->data = buf;
     bytes->len = buf_size;
 
+    fprintf(stdout, "Extracting %llu MiB of data from file '%s'.\n", bytes->len / (1024 * 1024), filepath);
+    fflush(stdout);
     //  encode the filename and file-content and corresponding lengths
     uint64_t idx = 0;
     //  length of filename
@@ -469,6 +508,21 @@ struct byte_string *encode_file(char *filepath) {
 
 //  extract all files that are encoded in the given byte-string
 int extract_files(struct byte_string *bytes_f) {
+    //  setup log file
+    FILE *log = fopen("parser.log", "wb+");
+    if (!log) {
+        fprintf(stderr, "Could not open file 'parser.log'.\n");
+        fflush(stderr);
+        return 1;
+    }
+    char *separator = malloc(1);
+    if (!separator) {
+        fprintf(stderr, "Memory allocation error.\n");
+        fflush(stderr);
+        return 1;
+    }
+    *separator = '\n';
+
     //  iterate through the byte-string and extract the encoded file data
     uint64_t pos = 0;
     while (pos < bytes_f->len) {
@@ -478,8 +532,11 @@ int extract_files(struct byte_string *bytes_f) {
         char *f_name = malloc(name_len + 1);
         if (!f_name) {
             fprintf(stderr, "Memory allocation error.\n");
+            fflush(stderr);
             free(bytes_f->data);
             free(bytes_f);
+            fclose(log);
+            free(separator);
             return 1;
         }
         //  copy the filename into the buffer
@@ -490,15 +547,18 @@ int extract_files(struct byte_string *bytes_f) {
 
         //  create corresponding output file
         fprintf(stdout, "Writing file '%s'\n", f_name + extract_filename(f_name, name_len));
+        fflush(stdout);
         FILE *out = fopen(f_name, "wb+");
         if (!out) {
             fprintf(stderr, "Could not create file '%s'.\n", f_name);
+            fflush(stderr);
             free(bytes_f->data);
             free(bytes_f);
             free(f_name);
+            fclose(log);
+            free(separator);
             return 1;
         }
-        free(f_name);
 
         //  decode length of the file-content
         uint64_t f_len = from_bytes(pos, LEN_SIZE, bytes_f->data);
@@ -507,19 +567,41 @@ int extract_files(struct byte_string *bytes_f) {
         uint64_t written = fwrite64(bytes_f->data + pos, f_len, out);
         if (written < f_len) {
             fprintf(stderr, "Could not write file '%s'.\n", f_name);
+            fflush(stderr);
             free(bytes_f->data);
             free(bytes_f);
             fclose(out);
+            free(f_name);
+            fclose(log);
+            free(separator);
             return 1;
         }
-        pos += f_len;
 
+        //  write parser log
+        uint64_t written_log = fwrite64(f_name, name_len, log);
+        uint64_t written_log_separator = fwrite64(separator, 1, log);
+        if (written_log < name_len || written_log_separator < 1) {
+            fprintf(stderr, "Could not write file 'parser.log'.\n");
+            fflush(stderr);
+            free(bytes_f->data);
+            free(bytes_f);
+            fclose(out);
+            free(f_name);
+            fclose(log);
+            free(separator);
+            return 1;
+        }
+
+        pos += f_len;
+        free(f_name);
         fclose(out);
     }
 
     //  clean-up
     free(bytes_f->data);
     free(bytes_f);
+    fclose(log);
+    free(separator);
     return 0;
 }
 
@@ -529,6 +611,7 @@ int process_input_file(char *filepath) {
     struct byte_string *bytes_f = read_bytes(filepath);
     if (!bytes_f) {
         fprintf(stderr, "Could not read file '%s'.\n", filepath);
+        fflush(stderr);
         return 1;
     }
 
@@ -543,6 +626,7 @@ int process_input_file(char *filepath) {
     char *f_names = calloc(f_count, f_name_len);
     if (!f_names) {
         fprintf(stderr, "Could not allocate memory.\n");
+        fflush(stderr);
         return 1;
     }
     for (uint32_t i = 0; i < f_count; i++) {
@@ -553,6 +637,7 @@ int process_input_file(char *filepath) {
     for (uint32_t i = 0; i < f_count; i++) {
         if (access(f_names + (i * f_name_len), R_OK) == -1) {
             fprintf(stderr, "Error, can not access file '%s'.\n", f_names + (i * f_name_len));
+            fflush(stderr);
             free(f_names);
             return 1;
         }
@@ -562,6 +647,7 @@ int process_input_file(char *filepath) {
     struct byte_string *bytes_complete = malloc(sizeof (struct byte_string));
     if (!bytes_complete) {
         fprintf(stderr, "Could not allocate memory.\n");
+        fflush(stderr);
         free(f_names);
         return 1;
     }
@@ -569,7 +655,9 @@ int process_input_file(char *filepath) {
     char *data = malloc(size_total);
     if (!data) {
         fprintf(stderr, "Could not allocate memory.\n");
+        fflush(stderr);
         free(f_names);
+        free(bytes_complete);
         return 1;
     }
     bytes_complete->data = data;
@@ -579,19 +667,26 @@ int process_input_file(char *filepath) {
     uint64_t cpy_offset = 0;
     for (uint32_t i = 0; i < f_count; i++) {
         fprintf(stdout, "Reading file '%s'\n", f_names + (i * f_name_len + extract_filename( f_names + (i * f_name_len), f_name_len)));
+        fflush(stdout);
         struct byte_string *bytes = read_bytes(f_names + (i * f_name_len));
         if (!bytes) {
             fprintf(stderr, "Error, could not read file '%s'.\n", f_names + (i * f_name_len));
+            fflush(stderr);
             free(f_names);
+            free(bytes_complete);
+            free(data);
             return 1;
         }
 
         //  prevent buffer-overflow on corrupt input file
         if (cpy_offset + bytes->len > size_total) {
             fprintf(stderr, "Error, aborting to prevent buffer-overflow. Input file might be corrupted.\n");
+            fflush(stderr);
             free(f_names);
             free(bytes->data);
             free(bytes);
+            free(bytes_complete);
+            free(data);
             return 1;
         }
         //  the data of all data-files will be stored as one large byte-string
