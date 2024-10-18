@@ -32,5 +32,5 @@ Like mentioned above, the parser can be executed in two modes.
 - `<input filename 1> ... <input filename n>`: The one or more input files, that you want to encode.
 
 #### decode:
-`decode <input filename>`
+`./parser decode <input filename>`
 - `<input filename>`: The _main file_ that corresponds to the `_data` files, that you want to decode.
